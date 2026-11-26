@@ -242,3 +242,4 @@ export function App() {
       student_name: chatStudentRef,
       body: chatInput,
       created_at: "Just now",
+      }
