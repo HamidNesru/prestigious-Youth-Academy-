@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import {
   GraduationCap, Users, FileCheck2, MessageSquare, Image as ImageIcon,
-  LogOut, Plus, Sparkles, CheckCircle2, AlertTriangle, Send, Award
+  LogOut, Plus, Sparkles, CheckCircle2, Send, Award, ShieldCheck
 } from "lucide-react";
-import Login, { UserRole } from "./pages/Login";
 import { supabase, hasSupabase } from "./supabase";
+
+export type UserRole = "Admin" | "Teacher" | "Parent";
 
 interface StudentRecord {
   id: string;
@@ -98,23 +99,26 @@ function evaluateExamQuality(subject: string, grade: number, content: string): {
   const hasAnalyticalVerbs = /(analyze|compare|evaluate|calculate|explain|derive|contrast|justify)/i.test(content);
   const hasNumberedQuestions = /(\b1\.|\b2\.|\bQ1|\bQuestion)/i.test(content);
 
-  let score = 72;
-  if (words >= 25) score += 8;
-  if (words >= 60) score += 6;
-  if (hasAnalyticalVerbs) score += 8;
-  if (hasNumberedQuestions) score += 5;
+  let score = 74;
+  if (words >= 20) score += 8;
+  if (words >= 50) score += 6;
+  if (hasAnalyticalVerbs) score += 6;
+  if (hasNumberedQuestions) score += 4;
   score = Math.min(score, 98);
 
   const feedback =
     score >= 88
-      ? `High-standard Grade ${grade} ${subject} assessment. Strong alignment with higher-order thinking skills, clear question numbering, and well-proportioned difficulty.`
-      : `Acceptable draft for Grade ${grade} ${subject}. AI Suggestion: Add more analytical action verbs (e.g., "Compare", "Analyze", "Justify") and explicitly state point weights per question.`;
+      ? `High-standard Grade ${grade} ${subject} assessment. Strong alignment with analytical thinking, clear question numbering, and well-proportioned difficulty.`
+      : `Acceptable draft for Grade ${grade} ${subject}. AI Suggestion: Include analytical action verbs (e.g., "Compare", "Analyze", "Justify") and explicit mark weights.`;
 
   return { score, feedback };
 }
 
 export function App() {
   const [user, setUser] = useState<{ name: string; role: UserRole } | null>(null);
+  const [loginName, setLoginName] = useState("Director Solomon");
+  const [loginRole, setLoginRole] = useState<UserRole>("Admin");
+
   const [activePage, setActivePage] = useState<"students" | "exams" | "chat" | "gallery">("students");
   const [selectedGrade, setSelectedGrade] = useState<number>(9);
   const [selectedSection, setSelectedSection] = useState<string>("A");
@@ -148,93 +152,63 @@ export function App() {
   }, []);
 
   if (!user) {
-    return <Login onLogin={setUser} />;
+    return (
+      <div className="min-h-screen bg-[#080808] text-gray-100 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-[#111111] border border-[#D4AF37]/40 rounded-2xl p-8 shadow-2xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-[#D4AF37] to-[#8C6218] text-black flex items-center justify-center shadow-lg">
+              <GraduationCap size={32} />
+            </div>
+            <h1 className="text-2xl font-bold text-[#D4AF37] tracking-wide">PRESTIGIOUS YOUTH ACADEMY</h1>
+            <p className="text-xs text-gray-400">Bole, Addis Ababa • Enterprise School & AI Portal</p>
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setUser({ name: loginName || "Administrator", role: loginRole });
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <label className="block text-xs uppercase text-[#D4AF37] mb-1">Full Name</label>
+              <input
+                required
+                type="text"
+                value={loginName}
+                onChange={(e) => setLoginName(e.target.value)}
+                className="w-full bg-[#1A1A1A] border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:border-[#D4AF37] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs uppercase text-[#D4AF37] mb-1">Select Portal Role</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["Admin", "Teacher", "Parent"] as UserRole[]).map((role) => (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => setLoginRole(role)}
+                    className={`py-2 rounded-lg text-xs font-bold border transition ${
+                      loginRole === role
+                        ? "bg-[#D4AF37] text-black border-[#D4AF37]"
+                        : "bg-[#1A1A1A] text-gray-400 border-gray-700 hover:border-[#D4AF37]/50"
+                    }`}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-gradient-to-r from-[#D4AF37] to-[#B5892E] hover:opacity-95 text-black font-bold py-3 rounded-xl transition shadow-lg"
+            >
+              Enter {loginRole} Dashboard
+            </button>
+          </form>
+        </div>
+      </div>
+    );
   }
-
-  const handleAddStudent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const countInSection = students.filter(
-      (s) => s.grade === newStudent.grade && s.section === newStudent.section
-    ).length;
-
-    if (countInSection >= 40) {
-      alert(`Grade ${newStudent.grade} Section ${newStudent.section} is full (40/40 students maximum).`);
-      return;
-    }
-
-    const record: StudentRecord = {
-      id: crypto.randomUUID(),
-      full_name: newStudent.full_name,
-      grade: newStudent.grade,
-      section: newStudent.section,
-      age: newStudent.age,
-      ws1: 0, test1: 0, ws2: 0, test2: 0, ws3: 0, mid_exam: 0, ws4: 0, final_exam: 0,
-    };
-
-    setStudents((prev) => [...prev, record]);
-    setSelectedGrade(newStudent.grade);
-    setSelectedSection(newStudent.section);
-    setNewStudent({ ...newStudent, full_name: "" });
-
-    if (hasSupabase && supabase) {
-      await supabase.from("students").insert([record]);
-    }
-  };
-
-  const handleScoreChange = async (id: string, field: keyof StudentRecord, raw: number, max: number) => {
-    const safe = Math.min(Math.max(0, isNaN(raw) ? 0 : raw), max);
-    setStudents((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: safe } : s)));
-    if (hasSupabase && supabase) {
-      await supabase.from("students").update({ [field]: safe }).eq("id", id);
-    }
-  };
-
-  const handleSubmitExam = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const { score, feedback } = evaluateExamQuality(examForm.subject, examForm.grade, examForm.exam_content);
-    const submission: ExamSubmission = {
-      id: crypto.randomUUID(),
-      ...examForm,
-      ai_score: score,
-      ai_feedback: feedback,
-      submitted_at: "Just now",
-    };
-    setExams((prev) => [submission, ...prev]);
-    setExamForm({ ...examForm, exam_content: "" });
-    if (hasSupabase && supabase) {
-      await supabase.from("exams").insert([submission]);
-    }
-  };
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-    const msg: ChatMessage = {
-      id: crypto.randomUUID(),
-      sender_role: user.role,
-      sender_name: user.name,
-      student_name: chatStudentRef,
-      body: chatInput,
-      created_at: "Just now",
-    };
-    setMessages((prev) => [...prev, msg]);
-    setChatInput("");
-    if (hasSupabase && supabase) {
-      await supabase.from("messages").insert([msg]);
-    }
-  };
-
-  const handleAddGallery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!galleryForm.title || !galleryForm.image_url) return;
-    const item: GalleryItem = { id: crypto.randomUUID(), ...galleryForm };
-    setGallery((prev) => [item, ...prev]);
-    setGalleryForm({ title: "", category: "Science Fair", image_url: "" });
-    if (hasSupabase && supabase) {
-      await supabase.from("gallery").insert([item]);
-    }
-  };
-
-  const classStudents = students.filter((s) => s.grade === selectedGrade && s.section === selectedSection);
-
-  return (
