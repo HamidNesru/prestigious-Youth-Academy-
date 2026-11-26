@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import {
   GraduationCap, Users, FileCheck2, MessageSquare, Image as ImageIcon,
-  LogOut, Plus, Sparkles, CheckCircle2, Send, Award, ShieldCheck
+  LogOut, Plus, Sparkles, CheckCircle2, AlertTriangle, Send, Award
 } from "lucide-react";
-
-type UserRole = "Admin" | "Teacher" | "Parent";
+import Login, { UserRole } from "./pages/Login";
+import { supabase, hasSupabase } from "./supabase";
 
 interface StudentRecord {
   id: string;
@@ -98,11 +98,11 @@ function evaluateExamQuality(subject: string, grade: number, content: string): {
   const hasAnalyticalVerbs = /(analyze|compare|evaluate|calculate|explain|derive|contrast|justify)/i.test(content);
   const hasNumberedQuestions = /(\b1\.|\b2\.|\bQ1|\bQuestion)/i.test(content);
 
-  let score = 74;
-  if (words >= 20) score += 7;
-  if (words >= 50) score += 6;
-  if (hasAnalyticalVerbs) score += 7;
-  if (hasNumberedQuestions) score += 4;
+  let score = 72;
+  if (words >= 25) score += 8;
+  if (words >= 60) score += 6;
+  if (hasAnalyticalVerbs) score += 8;
+  if (hasNumberedQuestions) score += 5;
   score = Math.min(score, 98);
 
   const feedback =
@@ -116,7 +116,6 @@ function evaluateExamQuality(subject: string, grade: number, content: string): {
 export function App() {
   const [user, setUser] = useState<{ name: string; role: UserRole } | null>(null);
   const [activePage, setActivePage] = useState<"students" | "exams" | "chat" | "gallery">("students");
-
   const [selectedGrade, setSelectedGrade] = useState<number>(9);
   const [selectedSection, setSelectedSection] = useState<string>("A");
 
@@ -132,54 +131,28 @@ export function App() {
   const [galleryForm, setGalleryForm] = useState({ title: "", category: "Science Fair", image_url: "" });
 
   useEffect(() => {
-    const saved = localStorage.getItem("pya_students_v1");
-    if (saved) {
-      try {
-        setStudents(JSON.parse(saved));
-      } catch {
-        // ignore parse error
-      }
-    }
+    if (!hasSupabase || !supabase) return;
+    (async () => {
+      const { data: st } = await supabase.from("students").select("*").order("full_name");
+      if (st && st.length > 0) setStudents(st);
+
+      const { data: ex } = await supabase.from("exams").select("*").order("submitted_at", { ascending: false });
+      if (ex && ex.length > 0) setExams(ex);
+
+      const { data: msg } = await supabase.from("messages").select("*").order("created_at", { ascending: true });
+      if (msg && msg.length > 0) setMessages(msg);
+
+      const { data: gal } = await supabase.from("gallery").select("*").order("created_at", { ascending: false });
+      if (gal && gal.length > 0) setGallery(gal);
+    })();
   }, []);
 
-  const saveStudents = (updated: StudentRecord[]) => {
-    setStudents(updated);
-    localStorage.setItem("pya_students_v1", JSON.stringify(updated));
-  };
-
   if (!user) {
-    return (
-      <div className="min-h-screen bg-[#080808] text-gray-100 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-[#121212] border border-[#D4AF37]/40 rounded-2xl p-8 shadow-2xl space-y-6">
-          <div className="text-center space-y-2">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-[#D4AF37] to-[#8C6218] text-black flex items-center justify-center shadow-lg">
-              <GraduationCap size={36} />
-            </div>
-            <h1 className="text-2xl font-extrabold tracking-wide text-[#D4AF37]">PRESTIGIOUS YOUTH ACADEMY</h1>
-            <p className="text-xs text-gray-400">Bole, Addis Ababa • Executive School Management & AI Portal</p>
-          </div>
-
-          <div className="space-y-3">
-            <p className="text-xs uppercase tracking-wider text-gray-400 text-center">Select Instant Demo Role</p>
-            {(["Admin", "Teacher", "Parent"] as UserRole[]).map((role) => (
-              <button
-                key={role}
-                onClick={() => setUser({ name: role === "Admin" ? "Director Yohannes" : role === "Teacher" ? "Mr. Dawit Hailu" : "Mrs. Tigist Bekele", role })}
-                className="w-full py-3 px-4 rounded-xl bg-[#1A1A1A] hover:bg-[#D4AF37] hover:text-black border border-[#D4AF37]/30 font-semibold text-sm flex items-center justify-between transition"
-              >
-                <span>Enter as {role}</span>
-                <span className="text-xs opacity-75">One-Click Access →</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
+    return <Login onLogin={setUser} />;
   }
 
-  const handleAddStudent = (e: React.FormEvent) => {
+  const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStudent.full_name.trim()) return;
     const countInSection = students.filter(
       (s) => s.grade === newStudent.grade && s.section === newStudent.section
     ).length;
@@ -190,41 +163,78 @@ export function App() {
     }
 
     const record: StudentRecord = {
-      id: Date.now().toString(),
-      full_name: newStudent.full_name.trim(),
+      id: crypto.randomUUID(),
+      full_name: newStudent.full_name,
       grade: newStudent.grade,
       section: newStudent.section,
       age: newStudent.age,
       ws1: 0, test1: 0, ws2: 0, test2: 0, ws3: 0, mid_exam: 0, ws4: 0, final_exam: 0,
     };
 
-    saveStudents([...students, record]);
+    setStudents((prev) => [...prev, record]);
     setSelectedGrade(newStudent.grade);
     setSelectedSection(newStudent.section);
     setNewStudent({ ...newStudent, full_name: "" });
+
+    if (hasSupabase && supabase) {
+      await supabase.from("students").insert([record]);
+    }
   };
 
-  const updateScore = (id: string, field: keyof StudentRecord, raw: number, max: number) => {
-    const val = Math.min(Math.max(0, isNaN(raw) ? 0 : raw), max);
-    saveStudents(students.map((s) => (s.id === id ? { ...s, [field]: val } : s)));
+  const handleScoreChange = async (id: string, field: keyof StudentRecord, raw: number, max: number) => {
+    const safe = Math.min(Math.max(0, isNaN(raw) ? 0 : raw), max);
+    setStudents((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: safe } : s)));
+    if (hasSupabase && supabase) {
+      await supabase.from("students").update({ [field]: safe }).eq("id", id);
+    }
   };
 
-  const handleExamSubmit = (e: React.FormEvent) => {
+  const handleSubmitExam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!examForm.exam_content.trim()) return;
-    const aiResult = evaluateExamQuality(examForm.subject, examForm.grade, examForm.exam_content);
-    const created: ExamSubmission = {
-      id: Date.now().toString(),
-      teacher_name: examForm.teacher_name,
-      subject: examForm.subject,
-      grade: examForm.grade,
-      exam_type: examForm.exam_type,
-      exam_content: examForm.exam_content,
-      ai_score: aiResult.score,
-      ai_feedback: aiResult.feedback,
+    const { score, feedback } = evaluateExamQuality(examForm.subject, examForm.grade, examForm.exam_content);
+    const submission: ExamSubmission = {
+      id: crypto.randomUUID(),
+      ...examForm,
+      ai_score: score,
+      ai_feedback: feedback,
       submitted_at: "Just now",
     };
-    setExams([created, ...exams]);
+    setExams((prev) => [submission, ...prev]);
     setExamForm({ ...examForm, exam_content: "" });
+    if (hasSupabase && supabase) {
+      await supabase.from("exams").insert([submission]);
+    }
   };
 
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    const msg: ChatMessage = {
+      id: crypto.randomUUID(),
+      sender_role: user.role,
+      sender_name: user.name,
+      student_name: chatStudentRef,
+      body: chatInput,
+      created_at: "Just now",
+    };
+    setMessages((prev) => [...prev, msg]);
+    setChatInput("");
+    if (hasSupabase && supabase) {
+      await supabase.from("messages").insert([msg]);
+    }
+  };
+
+  const handleAddGallery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!galleryForm.title || !galleryForm.image_url) return;
+    const item: GalleryItem = { id: crypto.randomUUID(), ...galleryForm };
+    setGallery((prev) => [item, ...prev]);
+    setGalleryForm({ title: "", category: "Science Fair", image_url: "" });
+    if (hasSupabase && supabase) {
+      await supabase.from("gallery").insert([item]);
+    }
+  };
+
+  const classStudents = students.filter((s) => s.grade === selectedGrade && s.section === selectedSection);
+
+  return (
