@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import {
   GraduationCap, Users, FileCheck2, MessageSquare, Image as ImageIcon,
-  LogOut, Plus, Sparkles, CheckCircle2, AlertTriangle, Send, Award
+  LogOut, Plus, Sparkles, CheckCircle2, Send, Award, ShieldCheck
 } from "lucide-react";
-import Login, { UserRole } from "./pages/Login";
-import { supabase, hasSupabase } from "./supabase";
+
+type UserRole = "Admin" | "Teacher" | "Parent";
 
 interface StudentRecord {
   id: string;
@@ -93,17 +93,16 @@ const INITIAL_GALLERY: GalleryItem[] = [
   { id: "g3", title: "Inter-Section Academic Debate Finals", category: "Student Leadership", image_url: "https://unsplash.com" },
 ];
 
-// Smart AI Exam Evaluator (Runs locally & enriches with AI scoring)
 function evaluateExamQuality(subject: string, grade: number, content: string): { score: number; feedback: string } {
   const words = content.trim().split(/\s+/).length;
   const hasAnalyticalVerbs = /(analyze|compare|evaluate|calculate|explain|derive|contrast|justify)/i.test(content);
   const hasNumberedQuestions = /(\b1\.|\b2\.|\bQ1|\bQuestion)/i.test(content);
 
-  let score = 72;
-  if (words >= 25) score += 8;
-  if (words >= 60) score += 6;
-  if (hasAnalyticalVerbs) score += 8;
-  if (hasNumberedQuestions) score += 5;
+  let score = 74;
+  if (words >= 20) score += 7;
+  if (words >= 50) score += 6;
+  if (hasAnalyticalVerbs) score += 7;
+  if (hasNumberedQuestions) score += 4;
   score = Math.min(score, 98);
 
   const feedback =
@@ -118,48 +117,69 @@ export function App() {
   const [user, setUser] = useState<{ name: string; role: UserRole } | null>(null);
   const [activePage, setActivePage] = useState<"students" | "exams" | "chat" | "gallery">("students");
 
-  // Grade 1-12 & Section A-E Filter
   const [selectedGrade, setSelectedGrade] = useState<number>(9);
   const [selectedSection, setSelectedSection] = useState<string>("A");
 
-  // Data States
   const [students, setStudents] = useState<StudentRecord[]>(INITIAL_STUDENTS);
   const [exams, setExams] = useState<ExamSubmission[]>(INITIAL_EXAMS);
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [gallery, setGallery] = useState<GalleryItem[]>(INITIAL_GALLERY);
 
-  // Forms
   const [newStudent, setNewStudent] = useState({ full_name: "", grade: 9, section: "A", age: 15 });
   const [examForm, setExamForm] = useState({ teacher_name: "Mr. Dawit Hailu", subject: "Mathematics", grade: 9, exam_type: "Final Exam (40%)", exam_content: "" });
   const [chatInput, setChatInput] = useState("");
   const [chatStudentRef, setChatStudentRef] = useState("Abebe Kebede (Grade 9A)");
   const [galleryForm, setGalleryForm] = useState({ title: "", category: "Science Fair", image_url: "" });
 
-  // Load from Supabase if environment variables are configured
   useEffect(() => {
-    if (!hasSupabase || !supabase) return;
-    (async () => {
-      const { data: st } = await supabase.from("students").select("*").order("full_name");
-      if (st && st.length > 0) setStudents(st);
-
-      const { data: ex } = await supabase.from("exams").select("*").order("submitted_at", { ascending: false });
-      if (ex && ex.length > 0) setExams(ex);
-
-      const { data: msg } = await supabase.from("messages").select("*").order("created_at", { ascending: true });
-      if (msg && msg.length > 0) setMessages(msg);
-
-      const { data: gal } = await supabase.from("gallery").select("*").order("created_at", { ascending: false });
-      if (gal && gal.length > 0) setGallery(gal);
-    })();
+    const saved = localStorage.getItem("pya_students_v1");
+    if (saved) {
+      try {
+        setStudents(JSON.parse(saved));
+      } catch {
+        // ignore parse error
+      }
+    }
   }, []);
 
+  const saveStudents = (updated: StudentRecord[]) => {
+    setStudents(updated);
+    localStorage.setItem("pya_students_v1", JSON.stringify(updated));
+  };
+
   if (!user) {
-    return <Login onLogin={setUser} />;
+    return (
+      <div className="min-h-screen bg-[#080808] text-gray-100 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-[#121212] border border-[#D4AF37]/40 rounded-2xl p-8 shadow-2xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-[#D4AF37] to-[#8C6218] text-black flex items-center justify-center shadow-lg">
+              <GraduationCap size={36} />
+            </div>
+            <h1 className="text-2xl font-extrabold tracking-wide text-[#D4AF37]">PRESTIGIOUS YOUTH ACADEMY</h1>
+            <p className="text-xs text-gray-400">Bole, Addis Ababa • Executive School Management & AI Portal</p>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs uppercase tracking-wider text-gray-400 text-center">Select Instant Demo Role</p>
+            {(["Admin", "Teacher", "Parent"] as UserRole[]).map((role) => (
+              <button
+                key={role}
+                onClick={() => setUser({ name: role === "Admin" ? "Director Yohannes" : role === "Teacher" ? "Mr. Dawit Hailu" : "Mrs. Tigist Bekele", role })}
+                className="w-full py-3 px-4 rounded-xl bg-[#1A1A1A] hover:bg-[#D4AF37] hover:text-black border border-[#D4AF37]/30 font-semibold text-sm flex items-center justify-between transition"
+              >
+                <span>Enter as {role}</span>
+                <span className="text-xs opacity-75">One-Click Access →</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
-  // Add Student (Max 40 per section)
-  const handleAddStudent = async (e: React.FormEvent) => {
+  const handleAddStudent = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newStudent.full_name.trim()) return;
     const countInSection = students.filter(
       (s) => s.grade === newStudent.grade && s.section === newStudent.section
     ).length;
@@ -170,76 +190,41 @@ export function App() {
     }
 
     const record: StudentRecord = {
-      id: crypto.randomUUID(),
-      full_name: newStudent.full_name,
+      id: Date.now().toString(),
+      full_name: newStudent.full_name.trim(),
       grade: newStudent.grade,
       section: newStudent.section,
       age: newStudent.age,
       ws1: 0, test1: 0, ws2: 0, test2: 0, ws3: 0, mid_exam: 0, ws4: 0, final_exam: 0,
     };
 
-    setStudents((prev) => [...prev, record]);
+    saveStudents([...students, record]);
     setSelectedGrade(newStudent.grade);
     setSelectedSection(newStudent.section);
     setNewStudent({ ...newStudent, full_name: "" });
-
-    if (hasSupabase && supabase) {
-      await supabase.from("students").insert([record]);
-    }
   };
 
-  // Update 8-Part Assessment Score
-  const handleScoreChange = async (id: string, field: keyof StudentRecord, rawValue: string, max: number) => {
-    const parsed = parseFloat(rawValue);
-    const val = isNaN(parsed) ? 0 : Math.min(Math.max(0, parsed), max);
-
-    setStudents((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: val } : s)));
-
-    if (hasSupabase && supabase) {
-      await supabase.from("students").update({ [field]: val }).eq("id", id);
-    }
+  const updateScore = (id: string, field: keyof StudentRecord, raw: number, max: number) => {
+    const val = Math.min(Math.max(0, isNaN(raw) ? 0 : raw), max);
+    saveStudents(students.map((s) => (s.id === id ? { ...s, [field]: val } : s)));
   };
 
-  // Teacher Exam Submission + Instant AI Quality Audit
-  const handleExamSubmit = async (e: React.FormEvent) => {
+  const handleExamSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!examForm.exam_content.trim()) return;
-
     const aiResult = evaluateExamQuality(examForm.subject, examForm.grade, examForm.exam_content);
-    const newSubmission: ExamSubmission = {
-      id: crypto.randomUUID(),
-      ...examForm,
+    const created: ExamSubmission = {
+      id: Date.now().toString(),
+      teacher_name: examForm.teacher_name,
+      subject: examForm.subject,
+      grade: examForm.grade,
+      exam_type: examForm.exam_type,
+      exam_content: examForm.exam_content,
       ai_score: aiResult.score,
       ai_feedback: aiResult.feedback,
       submitted_at: "Just now",
     };
-
-    setExams((prev) => [newSubmission, ...prev]);
+    setExams([created, ...exams]);
     setExamForm({ ...examForm, exam_content: "" });
-
-    if (hasSupabase && supabase) {
-      await supabase.from("exams").insert([{
-        teacher_name: newSubmission.teacher_name,
-        subject: newSubmission.subject,
-        grade: newSubmission.grade,
-        exam_type: newSubmission.exam_type,
-        exam_content: newSubmission.exam_content,
-        ai_score: newSubmission.ai_score,
-        ai_feedback: newSubmission.ai_feedback,
-      }]);
-    }
   };
 
-  // Parent-Teacher Message
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-
-    const newMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      sender_role: user.role,
-      sender_name: user.name,
-      student_name: chatStudentRef,
-      body: chatInput,
-      created_at: "Just now",
-      }
